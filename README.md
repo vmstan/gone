@@ -13,7 +13,7 @@ resolution than its intrinsic size (for crisp display) and disintegrates into
 flying, fading tiles on hover/click — a "Thanos snap" effect. Dark mode
 follows the browser's `prefers-color-scheme`.
 
-The HTML page is ~9 KB (~4.2 KB gzipped, handled automatically by
+The HTML page is ~10 KB (~4.7 KB gzipped, handled automatically by
 Cloudflare's edge).
 
 The page always displays `vmst.io`, regardless of which hostname routed the
@@ -70,21 +70,32 @@ hostname.
 Since this is meant to stand in for a decommissioned federated server, most
 traffic comes from other servers rather than browsers. The response is chosen
 from the request path and headers, checked in this order. Every response is
-`410 Gone` **except** `/robots.txt`, which is a live `200` directive:
+`410 Gone` **except** `/robots.txt`, which is a live `200` directive.
+
+**Every path-based branch is checked before any `Accept`-based one.** A path
+that names its own representation knows better than a header the client may
+have copied from a browser or an `<img>` tag: `Accept: image/png` on
+`/.well-known/webfinger` still gets the WebFinger JSON, not an image.
 
 ```mermaid
 flowchart TD
     A["Request"] --> B{"robots.txt Request?"}
     B -- yes --> B1["200, * Disallow\ntext/plain"]
-    B -- no --> C{"Media request?"}
+    B -- no --> C{"Media path?\nprefix or extension"}
     C -- yes --> C1["410, empty body\nrequested media type"]
     C -- no --> E{"XML host-meta request?"}
     E -- yes --> E1["410 &lt;Error&gt;Gone&lt;/Error&gt;\napplication/xrd+xml"]
-    E -- no --> G{"ActivityPub, REST API, Webfinger, or NodeInfo request?"}
-    G -- yes --> G1["410 {#quot;error#quot;:#quot;Gone#quot;}\napplication/activity+json / application/json"]
-    G -- no --> J{"RSS feed request?"}
+    E -- no --> F{"Inbox path, or\nActivityPub request body?"}
+    F -- yes --> F1["410 {#quot;error#quot;:#quot;Gone#quot;}\napplication/activity+json"]
+    F -- no --> G{"REST API, Webfinger,\nNodeInfo, or .json path?"}
+    G -- yes --> G1["410 {#quot;error#quot;:#quot;Gone#quot;}\napplication/json"]
+    G -- no --> J{"RSS feed path?"}
     J -- yes --> J1["410, empty body\napplication/rss+xml"]
-    J -- no --> L["410, HTML page\ntext/html"]
+    J -- no --> K{"Accept prefers media?"}
+    K -- yes --> K1["410, empty body\nrequested media type"]
+    K -- no --> M{"Accept prefers\nActivityPub or JSON?"}
+    M -- yes --> M1["410 {#quot;error#quot;:#quot;Gone#quot;}\napplication/activity+json / application/json"]
+    M -- no --> L["410, HTML page\ntext/html"]
 ```
 
 Every branch returns `410 Gone` except `/robots.txt`, which is a live `200`. A few
@@ -112,6 +123,9 @@ A few more notes that don't fit in the diagram:
   `/users/x/inbox`) or by either the `Accept` or `Content-Type` header being
   `application/activity+json` **or** `application/ld+json` — inbox POSTs may
   omit `Accept` entirely, and actor/status fetches may use either media type.
+  `Content-Type` describes a request *body*, so it is only consulted on
+  methods that carry one; on `GET` and `HEAD` it is ignored, which keeps every
+  cacheable response a function of `Accept` alone (see caching below).
 - **Accept** media types are parsed as individual ranges; `q` weights select
   the preferred recognized representation, and a range with `q=0` is not
   selected. On equal weights, browser HTML remains preferred over media.
@@ -125,14 +139,28 @@ A few more notes that don't fit in the diagram:
 
 All 410 responses carry `Cache-Control: private, max-age=86400` so the
 requesting client holds on to the 410 and stops re-requesting a permanently
-gone resource. Workers Cache is also enabled in `wrangler.toml`. Every 410
-response adds the edge-only
-`Cloudflare-CDN-Cache-Control: public, max-age=2592000` header, so Cloudflare can
-serve them from its tiered cache without invoking the Worker while browsers
-and downstream shared caches still see the private one-day directive. The
-30-day edge TTL is safe across changes because Workers Cache keys entries by
-Worker version by default. Their existing `Vary: Accept, Content-Type` header
-keeps HTML, JSON, ActivityPub, and media representations distinct.
+gone resource. This client-side directive is where most of the load reduction
+actually comes from.
+
+Workers Cache is also enabled in `wrangler.toml`, and every 410 response adds
+the edge-only `Cloudflare-CDN-Cache-Control: public, max-age=2592000` header,
+so Cloudflare can serve a repeat request from its tiered cache without
+invoking the Worker while browsers and downstream shared caches still see the
+private one-day directive. The 30-day edge TTL is safe across changes because
+Workers Cache keys entries by Worker version by default.
+
+`Vary: Accept` keeps the HTML, JSON, ActivityPub, feed, and media
+representations distinct at the edge. Note that this bounds how much the edge
+cache can actually help: **Workers Cache stores one variant per distinct
+verbatim value of every header named in `Vary`, with no normalization**, and
+`Accept` is among the most fragmented headers in existence — every browser
+build and fediverse implementation sends its own string. So the ~6 responses
+this Worker can produce are spread across far more than 6 cached variants, and
+the edge hit rate is correspondingly lower than the response count suggests.
+`Vary` cannot simply be dropped: without it the edge would hand the HTML page
+to an ActivityPub fetch. It is kept to a single header for this reason —
+`Content-Type` was removed from it by ignoring that header on `GET`/`HEAD`,
+since each additional name multiplies the stored variants.
 
 The HTML page is safe to share even though a Worker's cache key does not include
 the host because its displayed domain is fixed to `vmst.io`. `/robots.txt`
@@ -140,10 +168,12 @@ uses a public one-day cache and needs no `Vary`; `/healthz` is `no-store`.
 Only `GET` and `HEAD` are cacheable, so ActivityPub inbox `POST` requests still
 invoke the Worker.
 
-The HTML retirement page also sends `X-Robots-Tag: noindex, noarchive,
-nosnippet`, a restrictive Content Security Policy, `X-Content-Type-Options:
-nosniff`, and `Referrer-Policy: no-referrer`. Its optional logo animation is
-disabled for visitors who prefer reduced motion.
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer` are sent
+on every response, including `/robots.txt` and `/healthz`. The HTML retirement
+page additionally sends `X-Robots-Tag: noindex, noarchive, nosnippet` and a
+restrictive Content Security Policy, since it is the only representation with
+a document body. Its optional logo animation is disabled for visitors who
+prefer reduced motion.
 
 ### Media (former S3 bucket) requests
 
@@ -163,10 +193,17 @@ any of:
   recognized HTML or machine-readable alternatives (so a normal browser page
   load, whose `Accept` also lists image types, still gets the HTML page).
 
+The first two are **path** matches and are authoritative — they are checked
+before any header-based branch. The third is a header match and is checked
+only for paths that no other branch claims.
+
 The `Content-Type` is taken from the path's extension when it has one of the
 known media extensions, otherwise from the highest-quality concrete `image/…`,
 `video/…`, or `audio/…` token in `Accept` (for extensionless paths like a
-bare `/media_proxy/…` hit).
+bare `/media_proxy/…` hit). When neither resolves — an extensionless media
+path whose `Accept` carries only a wildcard, or none at all — it falls back to
+`application/octet-stream`, so that every media response is typed and a `-` in
+the request log unambiguously means a bug rather than this case.
 
 ## Logging
 

@@ -26,7 +26,7 @@ test("WebFinger returns a cacheable JSON 410", async () => {
   assert.equal(response.headers.get("Content-Type"), "application/json; charset=utf-8");
   assert.equal(response.headers.get("Cache-Control"), "private, max-age=86400");
   assert.equal(response.headers.get("Cloudflare-CDN-Cache-Control"), "public, max-age=2592000");
-  assert.equal(response.headers.get("Vary"), "Accept, Content-Type");
+  assert.equal(response.headers.get("Vary"), "Accept");
   assert.equal(await response.text(), '{"error":"Gone"}\n');
 });
 
@@ -65,7 +65,7 @@ test("media and rejected JSON ranges do not receive the HTML page", async () => 
   // The common 410 and safety headers apply to machine branches too, not
   // just the HTML page.
   assert.equal(media.headers.get("Cache-Control"), "private, max-age=86400");
-  assert.equal(media.headers.get("Vary"), "Accept, Content-Type");
+  assert.equal(media.headers.get("Vary"), "Accept");
   assert.equal(media.headers.get("X-Content-Type-Options"), "nosniff");
   assert.equal(media.headers.get("Referrer-Policy"), "no-referrer");
   assert.equal(media.headers.get("Cloudflare-CDN-Cache-Control"), "public, max-age=2592000");
@@ -82,10 +82,11 @@ test("extensionless media requests fall back to the Accept header", async () => 
   assert.equal(specific.headers.get("Content-Type"), "image/webp");
   assert.equal(await specific.text(), "");
 
-  // A wildcard still marks the request as media, but is not echoed back as a
-  // concrete response type.
+  // A wildcard still marks the request as media, but cannot be echoed back as
+  // a concrete response type, so it falls back to the generic binary type
+  // rather than leaving the response untyped.
   assert.equal(wildcard.status, 410);
-  assert.equal(wildcard.headers.get("Content-Type"), null);
+  assert.equal(wildcard.headers.get("Content-Type"), "application/octet-stream");
   assert.equal(await wildcard.text(), "");
 
   // A browser navigation lists image types alongside text/html and must not
@@ -178,6 +179,43 @@ test("robots and health endpoints have endpoint-specific cache directives", asyn
   assert.equal(health.status, 200);
   assert.equal(health.headers.get("Cache-Control"), "no-store");
   assert.equal(await health.text(), "ok\n");
+
+  // The universal safety headers apply to the 200 endpoints too, not just the
+  // 410 representations.
+  for (const [name, response] of Object.entries({ robots, health })) {
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff", name);
+    assert.equal(response.headers.get("Referrer-Policy"), "no-referrer", name);
+  }
+});
+
+test("a path that names its representation outranks the Accept header", async () => {
+  // An Accept copied from a browser (or from an <img> tag hotlinking the URL)
+  // must not pull a discovery or feed path into the media branch.
+  const webfinger = await request("/.well-known/webfinger", { headers: { Accept: "image/png" } });
+  const api = await request("/api/v1/instance", { headers: { Accept: "image/png" } });
+  const feed = await request("/@alice.rss", { headers: { Accept: "application/json" } });
+  const hostMeta = await request("/.well-known/host-meta", { headers: { Accept: "image/png" } });
+
+  assert.equal(webfinger.headers.get("Content-Type"), "application/json; charset=utf-8");
+  assert.equal(api.headers.get("Content-Type"), "application/json; charset=utf-8");
+  assert.equal(feed.headers.get("Content-Type"), "application/rss+xml; charset=utf-8");
+  assert.equal(hostMeta.headers.get("Content-Type"), "application/xrd+xml; charset=utf-8");
+});
+
+test("Content-Type is only consulted on methods that carry a body", async () => {
+  // A GET's Content-Type describes nothing, so it must not select ActivityPub.
+  // Keeping cacheable responses a function of Accept alone is what allows
+  // Vary to name a single header.
+  const get = await request("/profile", { headers: { "Content-Type": "application/activity+json" } });
+  const post = await request("/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/activity+json" },
+    body: "{}",
+  });
+
+  assert.equal(get.headers.get("Content-Type"), "text/html; charset=utf-8");
+  assert.equal(get.headers.get("Vary"), "Accept");
+  assert.equal(post.headers.get("Content-Type"), "application/activity+json; charset=utf-8");
 });
 
 test("request logging does not break responses when enabled", async () => {
