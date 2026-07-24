@@ -80,8 +80,12 @@ body {
   // size, so it stays crisp at the canvas's actual pixel resolution rather
   // than the small source dimensions in the SVG's width/height attributes.
   var RENDER_SCALE = 6;
-  var tileSize = 8;
+  // Tile size is in on-screen pixels, converted to canvas pixels at build
+  // time. In canvas pixels the tile count would scale with RENDER_SCALE
+  // squared, so a crisper raster would silently cost 36x the draw calls.
+  var TILE_DISPLAY_SIZE = 8;
   var tiles = [];
+  var builtTileSize = 0;
   var progress = 0; // 0 = intact, 1 = fully dissolved; only ever increases
   var target = 0;
   var speed = 1 / 6000; // progress units per ms — a slow, wind-borne drift
@@ -89,7 +93,17 @@ body {
   var running = false;
   var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
 
+  // Canvas pixels to the CSS pixels the canvas occupies. Before layout the
+  // rect is empty, so fall back to the ratio the canvas is authored at.
+  function displayScale() {
+    var rect = canvas.getBoundingClientRect();
+    return rect.width > 0 ? rect.width / canvas.width : 1 / RENDER_SCALE;
+  }
+
   function buildTiles() {
+    var tileSize = Math.max(1, Math.round(TILE_DISPLAY_SIZE / displayScale()));
+    if (tiles.length && tileSize === builtTileSize) return;
+    builtTileSize = tileSize;
     var cols = Math.ceil(canvas.width / tileSize);
     var rows = Math.ceil(canvas.height / tileSize);
     tiles = [];
@@ -103,9 +117,11 @@ body {
           delay: (x / cols) * 0.5 + Math.random() * 0.3,
           // A shared rightward breeze (with per-tile jitter) rather than an
           // outward blast, plus a gentle rise and a perpendicular sway so
-          // tiles flutter like leaves caught in the wind.
-          windX: window.innerWidth * (0.45 + Math.random() * 0.5),
-          windY: -window.innerHeight * (0.1 + Math.random() * 0.25),
+          // tiles flutter like leaves caught in the wind. Drift is kept as a
+          // fraction of the viewport and resolved at draw time, so a resize
+          // re-aims the wind without re-rolling it.
+          windXFactor: 0.45 + Math.random() * 0.5,
+          windYFactor: 0.1 + Math.random() * 0.25,
           sway: 15 + Math.random() * 25,
           swayFreq: 1.2 + Math.random() * 1.8,
           swayPhase: Math.random() * Math.PI * 2,
@@ -135,8 +151,9 @@ body {
     }
 
     var rect = canvas.getBoundingClientRect();
-    var displayScale = rect.width / canvas.width;
+    var scale = rect.width / canvas.width;
     var originX = rect.left, originY = rect.top;
+    var windX = window.innerWidth, windY = -window.innerHeight;
     for (var i = 0; i < tiles.length; i++) {
       var t = tiles[i];
       var span = 1 - t.delay;
@@ -151,11 +168,11 @@ body {
       octx.save();
       octx.globalAlpha = 1 - p;
       octx.translate(
-        originX + (t.x + t.w / 2) * displayScale + t.windX * p + sway,
-        originY + (t.y + t.h / 2) * displayScale + t.windY * p
+        originX + (t.x + t.w / 2) * scale + windX * t.windXFactor * p + sway,
+        originY + (t.y + t.h / 2) * scale + windY * t.windYFactor * p
       );
       octx.rotate(t.rot * p + Math.sin(p * t.swayFreq * Math.PI + t.swayPhase) * 0.25);
-      var dw = t.w * displayScale, dh = t.h * displayScale;
+      var dw = t.w * scale, dh = t.h * scale;
       octx.drawImage(img, t.x / RENDER_SCALE, t.y / RENDER_SCALE, t.w / RENDER_SCALE, t.h / RENDER_SCALE, -dw / 2, -dh / 2, dw, dh);
       octx.restore();
     }
@@ -197,7 +214,10 @@ body {
 
   window.addEventListener('resize', function () {
     resizeOverlay();
-    buildTiles();
+    // Rebuilding re-rolls each tile's delay and drift, so tiles already in
+    // flight would jump; only rebuild while the logo is still intact.
+    // drawFrame picks up the new scale and wind either way.
+    if (progress === 0) buildTiles();
     drawFrame();
   });
 
@@ -358,7 +378,14 @@ function isInboxPath(p) {
 // hasActivityPubContentType identifies ActivityPub request bodies. This is a
 // stronger signal than Accept: inbox deliveries may omit Accept entirely, and
 // their request representation should not be reclassified by response weights.
+//
+// Content-Type describes a request body, so it is only meaningful on methods
+// that carry one. Ignoring it on GET and HEAD keeps every cacheable response a
+// function of Accept alone, which is what lets Vary stay a single header —
+// Workers Cache stores one variant per distinct value of every header named in
+// Vary, so each extra name multiplies the number of stored variants.
 function hasActivityPubContentType(request) {
+  if (request.method === "GET" || request.method === "HEAD") return false;
   return contentTypeIsAny(
     request.headers.get("Content-Type"),
     "application/activity+json",
@@ -427,22 +454,31 @@ function bestAcceptedMediaRange(headerValue, concreteOnly = false) {
   return bestAcceptedRange(headerValue, (type) => isMediaType(type) && (!concreteOnly || !type.endsWith("/*")));
 }
 
-// isMediaRequest reports whether the request is for image/video/audio media,
-// as a decommissioned S3 bucket of attachments would receive. These are
-// <img>/<video> subresources or server-side refetches that discard any HTML
-// body, so they get an empty 410 to save bandwidth.
+// Media requests are what a decommissioned S3 bucket of attachments would
+// receive: <img>/<video> subresources or server-side refetches that discard
+// any HTML body, so they get an empty 410 to save bandwidth. Detection splits
+// in two, because the path is authoritative and the Accept header is only a
+// tie-breaker for paths that carry no signal of their own.
+
+// isMediaPath reports whether the path alone identifies media: a known
+// Mastodon media prefix (frequently extensionless, e.g. a hotlinked
+// /media_proxy/… image) or a known media file extension.
+function isMediaPath(p) {
+  if (p.startsWith("/media_proxy/") || p.startsWith("/media_attachments/") || p.startsWith("/system/")) {
+    return true;
+  }
+  return mediaExts.has(extOf(p));
+}
+
+// acceptPrefersMedia reports whether Accept asks for image/video/audio ahead
+// of every other representation this Worker serves. It is consulted only for
+// paths that are not already claimed by a path-based branch.
 //
 // A browser page navigation also lists image types in Accept (e.g.
 // "text/html,...,image/avif,image/webp"), so an equally or more preferred
 // text/html range wins over media. More-preferred ActivityPub or JSON ranges
-// also win. The file extension and known Mastodon media path prefixes remain
-// authoritative for clients that send a browser-style Accept (e.g. hotlinked
-// <img> tags pointing at /media_proxy/…).
-function isMediaRequest(request, p) {
-  if (p.startsWith("/media_proxy/") || p.startsWith("/media_attachments/") || p.startsWith("/system/")) {
-    return true;
-  }
-  if (mediaExts.has(extOf(p))) return true;
+// also win.
+function acceptPrefersMedia(request) {
   const accept = request.headers.get("Accept");
   const mediaRange = bestAcceptedMediaRange(accept);
   if (mediaRange === null) return false;
@@ -461,11 +497,15 @@ function isMediaRequest(request, p) {
 // request: the extension's known type if the path has one, otherwise the
 // specific image/video/audio token from Accept (for extensionless paths like
 // bare /media_proxy/… hits or hotlinked <img> tags with a browser Accept).
+// Neither resolves for an extensionless media path whose Accept carries only a
+// wildcard or no media range at all, so fall back to the generic binary type
+// rather than emitting a typeless response that the request log cannot tell
+// apart from a bug.
 function mediaContentType(request, p) {
   const byExt = mediaExts.get(extOf(p));
   if (byExt) return byExt;
   const range = bestAcceptedMediaRange(request.headers.get("Accept"), true);
-  return range ? range.type : "";
+  return range ? range.type : "application/octet-stream";
 }
 
 // renderPage fills the fixed display domain into the cached template. The
@@ -536,6 +576,11 @@ function logRequest(request, response, path, env) {
 // /robots.txt). The response is chosen from the request path and headers so
 // federating servers and API clients get compact machine-readable bodies
 // while human browsers get the HTML page.
+//
+// Every path-based branch is checked before any Accept-based one. A path that
+// names its own representation knows better than a header the client may have
+// copied from a browser: without this ordering an `Accept: image/png` on
+// /.well-known/webfinger would win over the WebFinger path itself.
 function handleGone(request) {
   const path = new URL(request.url).pathname;
   const preferredMachine = preferredMachineRepresentation(request.headers.get("Accept"));
@@ -550,7 +595,7 @@ function handleGone(request) {
   // Applies to every 410 branch below. robots.txt is a separately cacheable
   // crawler directive, so it must not inherit these representation-specific
   // headers.
-  const commonHeaders = { "Cache-Control": "private, max-age=86400", Vary: "Accept, Content-Type" };
+  const commonHeaders = { "Cache-Control": "private, max-age=86400", Vary: "Accept" };
 
   let response;
   if (path === "/robots.txt") {
@@ -563,7 +608,7 @@ function handleGone(request) {
         "Cache-Control": "public, max-age=86400",
       },
     });
-  } else if (isMediaRequest(request, path)) {
+  } else if (isMediaPath(path)) {
     // Former bucket media (an <img>/<video> tag or a server refetch, which
     // ignores any body) gets an empty 410 rather than the ~9 KB page, echoing
     // back the requested media type as Content-Type.
@@ -573,25 +618,32 @@ function handleGone(request) {
     // host-meta 410 is a bare `head 410`, but a small XRD error body costs
     // little and mirrors the JSON error given to the other discovery paths.
     response = writeGone("application/xrd+xml; charset=utf-8", xrdGoneBody);
-  } else if (isInboxPath(path) || hasActivityPubContentType(request) || preferredMachine === "activitypub") {
-    // Inbox delivery POSTs (by path, since they may lack Accept) and
-    // actor/status fetches (by Accept or Content-Type): same JSON error
-    // body as the branch below, but kept as application/activity+json since
-    // that's the representation these clients actually asked for.
+  } else if (isInboxPath(path) || hasActivityPubContentType(request)) {
+    // Inbox delivery POSTs, by path since they may lack Accept, and any other
+    // request whose body is itself ActivityPub. Same JSON error body as the
+    // branch below, but kept as application/activity+json since that's the
+    // representation these clients actually work in.
     response = writeGone("application/activity+json; charset=utf-8", jsonGoneBody);
-  } else if (
-    isAPIPath(path) ||
-    isJSONPath(path) ||
-    preferredMachine === "json"
-  ) {
-    // Mastodon REST API, WebFinger / NodeInfo / OAuth discovery, .json
-    // resources (all by path, any Accept), and generic JSON clients all get
-    // the same small JSON error body.
+  } else if (isAPIPath(path) || isJSONPath(path)) {
+    // Mastodon REST API, WebFinger / NodeInfo / OAuth discovery, and .json
+    // resources, all by path and regardless of Accept, since these clients
+    // (apps, scrapers, OAuth libraries) often send a browser-style Accept or
+    // none at all.
     response = writeGone("application/json; charset=utf-8", jsonGoneBody);
   } else if (isFeedPath(path)) {
     // Dead RSS feed: return the matching content type so readers recognise
     // the 410 and stop polling. The body is empty.
     response = writeGone("application/rss+xml; charset=utf-8", "");
+  } else if (acceptPrefersMedia(request)) {
+    // No path signal, but Accept asks for media ahead of everything else —
+    // a hotlinked subresource on a path this Worker does not recognise.
+    response = writeGone(mediaContentType(request, path), "");
+  } else if (preferredMachine === "activitypub") {
+    // Actor/status fetches on unrecognised paths, chosen by Accept.
+    response = writeGone("application/activity+json; charset=utf-8", jsonGoneBody);
+  } else if (preferredMachine === "json") {
+    // Generic JSON clients get the same small JSON error body.
+    response = writeGone("application/json; charset=utf-8", jsonGoneBody);
   } else {
     response = new Response(retirementPage, {
       status: 410,
@@ -604,10 +656,9 @@ function handleGone(request) {
     response.headers.set("Cloudflare-CDN-Cache-Control", "public, max-age=2592000");
   }
 
-  // These headers are safe for every representation. HTML additionally
-  // contains the retirement page, so it gets indexing and document controls.
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("Referrer-Policy", "no-referrer");
+  // The retirement page is the only representation with a document body, so it
+  // gets indexing and document controls on top of the universal headers that
+  // fetch() applies.
   if (response.headers.get("Content-Type")?.startsWith("text/html")) {
     response.headers.set("X-Robots-Tag", "noindex, noarchive, nosnippet");
     response.headers.set(
@@ -627,10 +678,19 @@ function handleHealthz() {
   });
 }
 
+// applySafeHeaders sets the headers that are correct for every representation.
+// Applied here rather than in handleGone so that /healthz, which is served
+// outside it, is covered too.
+function applySafeHeaders(response) {
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    const response = path === "/healthz" ? handleHealthz() : handleGone(request);
+    const response = applySafeHeaders(path === "/healthz" ? handleHealthz() : handleGone(request));
     logRequest(request, response, path, env);
     return response;
   },
