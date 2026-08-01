@@ -10,7 +10,7 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "miniflare": "4.20260722.0",
+    "miniflare": "4.20260722.1",
     "wrangler": "^4.115.0"
   }
 }
