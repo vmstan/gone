@@ -20,6 +20,13 @@ The page always displays `vmst.io`, regardless of which hostname routed the
 request. Client-supplied forwarding headers are not reflected in the page or
 logs.
 
+Every response carries `Access-Control-Allow-Origin: *`, matching what Mastodon
+sends on these paths, so third-party web clients can actually read the 410 and
+its JSON `error` field instead of hitting an opaque CORS failure. CORS
+preflights are answered `204` rather than `410` — a preflight asks permission to
+send a request, and failing it would stop the browser from ever delivering the
+real one.
+
 Example ActivityPub actor fetch:
 
 ```sh
@@ -44,8 +51,8 @@ pnpm test
 ```
 
 The Miniflare contract suite covers WebFinger, ActivityPub actor and inbox
-requests, media, content negotiation, the retirement-page headers, and the
-robots and health endpoints.
+requests, media, content negotiation, the retirement-page headers, CORS and
+preflight handling, and the robots and health endpoints.
 
 ```sh
 curl -i http://localhost:8787/
