@@ -202,6 +202,56 @@ test("a path that names its representation outranks the Accept header", async ()
   assert.equal(hostMeta.headers.get("Content-Type"), "application/xrd+xml; charset=utf-8");
 });
 
+test("cross-origin clients can read every representation", async () => {
+  // Third-party web clients are cross-origin, so without this header the
+  // browser rejects the response before the app can read the "error" field the
+  // JSON branches exist to deliver.
+  const responses = {
+    api: await request("/api/v1/instance", { headers: { Origin: "https://phanpy.social" } }),
+    webfinger: await request("/.well-known/webfinger?resource=acct:alice@retired.example"),
+    actor: await request("/users/alice", { headers: { Accept: "application/activity+json" } }),
+    page: await request("/"),
+    robots: await request("/robots.txt"),
+    health: await request("/healthz"),
+  };
+
+  for (const [name, response] of Object.entries(responses)) {
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*", name);
+  }
+  // A constant "*" does not depend on Origin, so Vary must stay a single header.
+  assert.equal(responses.api.headers.get("Vary"), "Accept");
+});
+
+test("a CORS preflight succeeds so the real request can reach its 410", async () => {
+  // A preflight asks permission to send a request; it does not request the
+  // resource. Answering 410 would stop the browser from ever sending the real
+  // request, so the client would never see the 410.
+  const preflight = await request("/api/v1/timelines/home", {
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://elk.zone",
+      "Access-Control-Request-Method": "GET",
+      "Access-Control-Request-Headers": "authorization",
+    },
+  });
+
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("Access-Control-Allow-Origin"), "*");
+  assert.match(preflight.headers.get("Access-Control-Allow-Methods"), /GET/);
+  // Authorization is excluded from the "*" form of this header, so it has to be
+  // named explicitly — every Mastodon API client sends it.
+  assert.equal(preflight.headers.get("Access-Control-Allow-Headers"), "authorization");
+  assert.equal(preflight.headers.get("Cache-Control"), "no-store");
+});
+
+test("a plain OPTIONS request is still gone", async () => {
+  // Only the browser's two preflight markers divert from the 410.
+  const options = await request("/api/v1/instance", { method: "OPTIONS" });
+
+  assert.equal(options.status, 410);
+  assert.equal(options.headers.get("Content-Type"), "application/json; charset=utf-8");
+});
+
 test("Content-Type is only consulted on methods that carry a body", async () => {
   // A GET's Content-Type describes nothing, so it must not select ActivityPub.
   // Keeping cacheable responses a function of Accept alone is what allows

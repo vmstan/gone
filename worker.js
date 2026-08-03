@@ -86,6 +86,8 @@ body {
   var TILE_DISPLAY_SIZE = 8;
   var tiles = [];
   var builtTileSize = 0;
+  var builtWidth = 0;
+  var builtHeight = 0;
   var progress = 0; // 0 = intact, 1 = fully dissolved; only ever increases
   var target = 0;
   var speed = 1 / 6000; // progress units per ms — a slow, wind-borne drift
@@ -102,8 +104,22 @@ body {
 
   function buildTiles() {
     var tileSize = Math.max(1, Math.round(TILE_DISPLAY_SIZE / displayScale()));
-    if (tiles.length && tileSize === builtTileSize) return;
+    // The canvas dimensions are part of the guard, not just the tile size. A
+    // resize landing before the logo loads builds a grid against the
+    // placeholder canvas, and keying on tile size alone could then skip the
+    // rebuild once the real dimensions arrive, leaving part of the logo
+    // outside the grid and unable to ever dissolve.
+    if (
+      tiles.length &&
+      tileSize === builtTileSize &&
+      canvas.width === builtWidth &&
+      canvas.height === builtHeight
+    ) {
+      return;
+    }
     builtTileSize = tileSize;
+    builtWidth = canvas.width;
+    builtHeight = canvas.height;
     var cols = Math.ceil(canvas.width / tileSize);
     var rows = Math.ceil(canvas.height / tileSize);
     tiles = [];
@@ -684,13 +700,68 @@ function handleHealthz() {
 function applySafeHeaders(response) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "no-referrer");
+  // Mastodon sends Access-Control-Allow-Origin: * on every path family this
+  // Worker answers (/.well-known/*, /nodeinfo/*, /@user, /users/*, /api/*, and
+  // the OAuth endpoints), so omitting it would regress against the server being
+  // retired. Third-party web clients are cross-origin: without this the browser
+  // rejects the response before the app can read it, turning a deliberate 410
+  // and its JSON "error" field into an opaque network failure.
+  //
+  // Every response here is a fixed public document with no credentials
+  // attached, so a constant "*" is safe. Being constant, it also does not
+  // depend on Origin, which keeps Vary a single header and the cached variant
+  // count unchanged.
+  response.headers.set("Access-Control-Allow-Origin", "*");
   return response;
+}
+
+// isPreflight reports whether a request is a CORS preflight rather than a plain
+// OPTIONS request. Both marker headers are set by the browser and cannot be
+// forged by page script, so an ordinary OPTIONS still falls through to the 410.
+function isPreflight(request) {
+  return (
+    request.method === "OPTIONS" &&
+    request.headers.has("Origin") &&
+    request.headers.has("Access-Control-Request-Method")
+  );
+}
+
+// handlePreflight answers a CORS preflight. It has to succeed with a 2xx even
+// though every resource is gone: a preflight asks permission to send a request,
+// it does not request the resource. Answering 410 fails the check, so the
+// browser never sends the real request and the client never receives the 410 it
+// is being told about.
+//
+// Requested headers are echoed back, matching Mastodon's own `headers: :any`
+// CORS rule. The wildcard form of Access-Control-Allow-Headers deliberately
+// does not cover Authorization, which every Mastodon API client sends, so a
+// literal "*" here would fail exactly the clients that matter most.
+function handlePreflight(request) {
+  const headers = new Headers({
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    // The browser's preflight cache is governed by Access-Control-Max-Age. This
+    // only stops a shared cache from storing a response whose allowed headers
+    // were negotiated for one specific request.
+    "Cache-Control": "no-store",
+  });
+  const requested = request.headers.get("Access-Control-Request-Headers");
+  if (requested) headers.set("Access-Control-Allow-Headers", requested);
+  return new Response(null, { status: 204, headers });
 }
 
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    const response = applySafeHeaders(path === "/healthz" ? handleHealthz() : handleGone(request));
+    let handled;
+    if (isPreflight(request)) {
+      handled = handlePreflight(request);
+    } else if (path === "/healthz") {
+      handled = handleHealthz();
+    } else {
+      handled = handleGone(request);
+    }
+    const response = applySafeHeaders(handled);
     logRequest(request, response, path, env);
     return response;
   },
