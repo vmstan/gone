@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       miniflare:
-        specifier: 4.20260722.1
-        version: 4.20260722.1
+        specifier: 4.20260730.0
+        version: 4.20260730.0
       wrangler:
         specifier: ^4.116.0
         version: 4.116.0
@@ -30,22 +30,10 @@ packages:
       workerd:
         optional: true
 
-  '@cloudflare/workerd-darwin-64@1.20260722.1':
-    resolution: {integrity: sha512-vZOP8vIS3NwnuaO+gz0FZ7kIGeiO3bZmxV35Ph9zOXKSREhDFlH7wQ7mkCdhW3O4jnXsew+XT7b+DNEI2CcJGQ==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [darwin]
-
   '@cloudflare/workerd-darwin-64@1.20260730.1':
     resolution: {integrity: sha512-+MBHmPaiTe2KajryW0T24rZvWFxb41hD3d8anNzQqHzft6vSEb18+sp0znSwxgij7ApPhSM1+vhkNg4f3YMguA==}
     engines: {node: '>=16'}
     cpu: [x64]
-    os: [darwin]
-
-  '@cloudflare/workerd-darwin-arm64@1.20260722.1':
-    resolution: {integrity: sha512-EmIQymihDq6WNdER4+LF8Qn80yqayBUpJ+tkOO7wmY8pmgfyXjIUFNXotl21AHovTeu2seR7HdVUgeN/BilCWw==}
-    engines: {node: '>=16'}
-    cpu: [arm64]
     os: [darwin]
 
   '@cloudflare/workerd-darwin-arm64@1.20260730.1':
@@ -54,22 +42,10 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@cloudflare/workerd-linux-64@1.20260722.1':
-    resolution: {integrity: sha512-jvZ3k9fxcnEn04s80CgIYxQfpOyAiz/8qC42DP8EBa9tR27qWyg9wmm31zIobVlrgBZn/+8NfdP73avRGcQOjQ==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [linux]
-
   '@cloudflare/workerd-linux-64@1.20260730.1':
     resolution: {integrity: sha512-ouyPOSMbiKPeSwUJUvxtMcxGAXs2J4aPE4T5ABIYX5ClcQx5j5bbHTmnqOQEY8sAuLTPjH7dY+iB6UI5ISlwwA==}
     engines: {node: '>=16'}
     cpu: [x64]
-    os: [linux]
-
-  '@cloudflare/workerd-linux-arm64@1.20260722.1':
-    resolution: {integrity: sha512-BOSB55SMNdy+DA5uj2WirgiNanpHGis5PVvXH1wSfvjRKr4JGgWK+EZzxz0RFUo6QjjQQC/NimEzNZ7va7jmKg==}
-    engines: {node: '>=16'}
-    cpu: [arm64]
     os: [linux]
 
   '@cloudflare/workerd-linux-arm64@1.20260730.1':
@@ -77,12 +53,6 @@ packages:
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [linux]
-
-  '@cloudflare/workerd-windows-64@1.20260722.1':
-    resolution: {integrity: sha512-sYM8YgUpKnRz2xjvdJLX1Ojzoi4MlA4gk8WTTExhGydjYB2UTs5NIbv0ZmpKgMoK9io3ixgmiW56ZnTbcWOdiA==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [win32]
 
   '@cloudflare/workerd-windows-64@1.20260730.1':
     resolution: {integrity: sha512-27fAN+vUECW1oYVc1KOcHYpkL8COM2Uxtxql7TL595kxbjoqS5yckw7NLz7bTf2pALFCZWjqXDjZGJ/xbG4ZKQ==}
@@ -438,8 +408,8 @@ packages:
     resolution: {integrity: sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw==}
     engines: {node: '>=18'}
 
-  '@speed-highlight/core@1.2.20':
-    resolution: {integrity: sha512-biXn20UJkNJ9cB35lPXJKfgUl1NQfhbApt78oePVjC0gB4+hlJyjkUz1hoLHLk7dEl+mSbW0VtX4C2IlRIDoHA==}
+  '@speed-highlight/core@1.2.23':
+    resolution: {integrity: sha512-iRoq6i6JDJP6Mt2A5JaPvzw0pgYHH6k92ij+yXiTrB7T2y9N789aWE3EHWj/5ztlJBokcCBja3iYLVdu5wgnkg==}
 
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
@@ -468,11 +438,6 @@ packages:
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
-
-  miniflare@4.20260722.1:
-    resolution: {integrity: sha512-FJIg4omaCb2wwSyOeRosEdmVRi3JzGAOOH3pa3twmmtvWECl6BVZMIDwJbjByLKRyU+mrfk0M/n3oSiojFZvSA==}
-    engines: {node: '>=22.0.0'}
-    hasBin: true
 
   miniflare@4.20260730.0:
     resolution: {integrity: sha512-1Z9SB9r/o//80UA02Re3QhtcecSHAyAjf5EcKBfQVlQrCg7Miy79hl2PvtkwFLIaJ5rcrOPdDcRr577okwZPsg==}
@@ -507,11 +472,6 @@ packages:
 
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
-
-  workerd@1.20260722.1:
-    resolution: {integrity: sha512-NycKuc1x2onvsRfGGpM093vRlLFU2zHDAM0+APpccfg4+gZxDGCH27RmdDvkeBuoZyYqgLo3oAfF6re4mvC3vQ==}
-    engines: {node: '>=16'}
-    hasBin: true
 
   workerd@1.20260730.1:
     resolution: {integrity: sha512-zmfNIjwYSWFY5chGBOjWtH3xAE7p97FTC6vR4Ep98290ho6AeAR/NVcBD274YCLEUYzqm8yxdtZlxMybU8a3jA==}
@@ -556,31 +516,16 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260730.1
 
-  '@cloudflare/workerd-darwin-64@1.20260722.1':
-    optional: true
-
   '@cloudflare/workerd-darwin-64@1.20260730.1':
-    optional: true
-
-  '@cloudflare/workerd-darwin-arm64@1.20260722.1':
     optional: true
 
   '@cloudflare/workerd-darwin-arm64@1.20260730.1':
     optional: true
 
-  '@cloudflare/workerd-linux-64@1.20260722.1':
-    optional: true
-
   '@cloudflare/workerd-linux-64@1.20260730.1':
     optional: true
 
-  '@cloudflare/workerd-linux-arm64@1.20260722.1':
-    optional: true
-
   '@cloudflare/workerd-linux-arm64@1.20260730.1':
-    optional: true
-
-  '@cloudflare/workerd-windows-64@1.20260722.1':
     optional: true
 
   '@cloudflare/workerd-windows-64@1.20260730.1':
@@ -802,7 +747,7 @@ snapshots:
 
   '@sindresorhus/is@7.2.0': {}
 
-  '@speed-highlight/core@1.2.20': {}
+  '@speed-highlight/core@1.2.23': {}
 
   blake3-wasm@2.1.5: {}
 
@@ -845,18 +790,6 @@ snapshots:
     optional: true
 
   kleur@4.1.5: {}
-
-  miniflare@4.20260722.1:
-    dependencies:
-      '@cspotcode/source-map-support': 0.8.1
-      sharp: 0.35.2
-      undici: 7.28.0
-      workerd: 1.20260722.1
-      ws: 8.21.0
-      youch: 4.1.0-beta.10
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   miniflare@4.20260730.0:
     dependencies:
@@ -919,14 +852,6 @@ snapshots:
     dependencies:
       pathe: 2.0.3
 
-  workerd@1.20260722.1:
-    optionalDependencies:
-      '@cloudflare/workerd-darwin-64': 1.20260722.1
-      '@cloudflare/workerd-darwin-arm64': 1.20260722.1
-      '@cloudflare/workerd-linux-64': 1.20260722.1
-      '@cloudflare/workerd-linux-arm64': 1.20260722.1
-      '@cloudflare/workerd-windows-64': 1.20260722.1
-
   workerd@1.20260730.1:
     optionalDependencies:
       '@cloudflare/workerd-darwin-64': 1.20260730.1
@@ -962,6 +887,6 @@ snapshots:
     dependencies:
       '@poppinss/colors': 4.1.6
       '@poppinss/dumper': 0.6.5
-      '@speed-highlight/core': 1.2.20
+      '@speed-highlight/core': 1.2.23
       cookie: 1.1.1
       youch-core: 0.3.3
