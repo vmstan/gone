@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { Miniflare } from "miniflare";
+import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
-const mf = new Miniflare({
-  modules: true,
-  scriptPath: "worker.js",
-  modulesRules: [{ type: "Text", include: ["**/*.svg"] }],
-  bindings: { LOG_REQUESTS: "false" },
-});
+const modules = [
+  { type: "ESModule", path: "worker.js", contents: readFileSync("worker.js", "utf8") },
+  { type: "Text", path: "logo.svg", contents: readFileSync("logo.svg", "utf8") },
+];
+
+function createMiniflare(bindings) {
+  return new Miniflare(convertV4MiniflareOptions({ modules, bindings }));
+}
+
+const mf = createMiniflare({ LOG_REQUESTS: "false" });
 
 async function request(path, init = {}) {
   return mf.dispatchFetch(`https://retired.example${path}`, init);
@@ -274,12 +279,7 @@ test("request logging does not break responses when enabled", async () => {
   const messages = [];
   const originalConsoleLog = console.log;
   console.log = (...args) => messages.push(args.join(" "));
-  const logging = new Miniflare({
-    modules: true,
-    scriptPath: "worker.js",
-    modulesRules: [{ type: "Text", include: ["**/*.svg"] }],
-    bindings: {},
-  });
+  const logging = createMiniflare({});
 
   try {
     const response = await logging.dispatchFetch("https://retired.example/users/alice?source=test", {
