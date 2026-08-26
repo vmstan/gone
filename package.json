@@ -11,6 +11,6 @@
   },
   "devDependencies": {
     "miniflare": "5.20260811.1-alpha",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.126.0"
   }
 }
