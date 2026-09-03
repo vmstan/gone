@@ -1,4 +1,4 @@
-# gone
+# Gone
 
 A small Cloudflare Worker for retiring a Mastodon/ActivityPub server and its
 media bucket. Retired resources return `HTTP 410 Gone`; browser visits receive a
