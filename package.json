@@ -2,6 +2,7 @@
   "name": "gone",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@11.25.0",
   "description": "Tiny Cloudflare Worker that responds to every request with HTTP 410 Gone.",
   "scripts": {
@@ -10,7 +11,6 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "miniflare": "5.20260811.1-alpha",
     "wrangler": "^4.128.0"
   }
 }

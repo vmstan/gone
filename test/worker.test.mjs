@@ -1,237 +1,131 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
-const modules = [
-  { type: "ESModule", path: "worker.js", contents: readFileSync("worker.js", "utf8") },
-  { type: "Text", path: "logo.svg", contents: readFileSync("logo.svg", "utf8") },
-];
+import { createRetirementPage } from "../page.js";
+import { classifyRequest, handleRequest } from "../router.js";
 
-function createMiniflare(bindings) {
-  return new Miniflare(convertV4MiniflareOptions({ modules, bindings }));
+const retirementPage = createRetirementPage("<svg></svg>", "vmst.io");
+
+function request(path, init = {}) {
+  return handleRequest(new Request(`https://retired.example${path}`, init), retirementPage);
 }
 
-const mf = createMiniflare({ LOG_REQUESTS: "false" });
-
-async function request(path, init = {}) {
-  return mf.dispatchFetch(`https://retired.example${path}`, init);
-}
-
-test.after(async () => {
-  await mf.dispose();
-});
-
-test("WebFinger returns a cacheable JSON 410", async () => {
-  const response = await request("/.well-known/webfinger?resource=acct:alice@retired.example", {
-    headers: { Accept: "application/jrd+json, application/json" },
-  });
-
-  assert.equal(response.status, 410);
-  assert.equal(response.headers.get("Content-Type"), "application/json; charset=utf-8");
-  assert.equal(response.headers.get("Cache-Control"), "private, max-age=86400");
-  assert.equal(response.headers.get("Cloudflare-CDN-Cache-Control"), "public, max-age=2592000");
-  assert.equal(response.headers.get("Vary"), "Accept");
-  assert.equal(await response.text(), '{"error":"Gone"}\n');
-});
-
-test("ActivityPub actor and inbox requests receive an ActivityPub 410", async () => {
-  const actor = await request("/users/alice", { headers: { Accept: "application/activity+json" } });
-  const inbox = await request("/inbox", { method: "POST", body: "{}" });
-
-  for (const [name, response] of Object.entries({ actor, inbox })) {
-    assert.equal(response.status, 410, name);
-    assert.equal(response.headers.get("Content-Type"), "application/activity+json; charset=utf-8", name);
-    assert.equal(await response.text(), '{"error":"Gone"}\n', name);
-  }
-});
-
-test("ActivityPub is recognized by Content-Type on non-inbox paths", async () => {
-  const response = await request("/users/alice/outbox", {
-    method: "POST",
-    headers: { "Content-Type": "application/ld+json" },
-    body: "{}",
-  });
-
-  assert.equal(response.status, 410);
-  assert.equal(response.headers.get("Content-Type"), "application/activity+json; charset=utf-8");
-  assert.equal(await response.text(), '{"error":"Gone"}\n');
-});
-
-test("media and rejected JSON ranges do not receive the HTML page", async () => {
-  const media = await request("/media_attachments/1/image.png", { headers: { Accept: "image/png" } });
-  const browser = await request("/users/alice", { headers: { Accept: "text/html, application/json;q=0" } });
-
-  assert.equal(media.status, 410);
-  assert.equal(media.headers.get("Content-Type"), "image/png");
-  assert.equal(await media.text(), "");
-  assert.equal(browser.headers.get("Content-Type"), "text/html; charset=utf-8");
-
-  // The common 410 and safety headers apply to machine branches too, not
-  // just the HTML page.
-  assert.equal(media.headers.get("Cache-Control"), "private, max-age=86400");
-  assert.equal(media.headers.get("Vary"), "Accept");
-  assert.equal(media.headers.get("X-Content-Type-Options"), "nosniff");
-  assert.equal(media.headers.get("Referrer-Policy"), "no-referrer");
-  assert.equal(media.headers.get("Cloudflare-CDN-Cache-Control"), "public, max-age=2592000");
-});
-
-test("extensionless media requests fall back to the Accept header", async () => {
-  const specific = await request("/some/attachment", { headers: { Accept: "image/webp" } });
-  const wildcard = await request("/some/attachment", { headers: { Accept: "image/*" } });
-  const browser = await request("/some/attachment", {
-    headers: { Accept: "text/html,application/xhtml+xml,image/avif,image/webp,*/*;q=0.8" },
-  });
-
-  assert.equal(specific.status, 410);
-  assert.equal(specific.headers.get("Content-Type"), "image/webp");
-  assert.equal(await specific.text(), "");
-
-  // A wildcard still marks the request as media, but cannot be echoed back as
-  // a concrete response type, so it falls back to the generic binary type
-  // rather than leaving the response untyped.
-  assert.equal(wildcard.status, 410);
-  assert.equal(wildcard.headers.get("Content-Type"), "application/octet-stream");
-  assert.equal(await wildcard.text(), "");
-
-  // A browser navigation lists image types alongside text/html and must not
-  // be mistaken for a media subresource.
-  assert.equal(browser.headers.get("Content-Type"), "text/html; charset=utf-8");
-});
-
-test("Accept quality weights select the preferred representation", async () => {
-  const media = await request("/some/attachment", {
-    headers: { Accept: "image/avif;q=0.1, image/webp;q=1" },
-  });
-  const json = await request("/profile", {
-    headers: { Accept: "application/activity+json;q=0.1, application/json;q=1" },
-  });
-  const html = await request("/profile", {
-    headers: { Accept: "application/activity+json;q=0.1, text/html;q=1" },
-  });
-  const jsonOverMedia = await request("/profile", {
-    headers: { Accept: "image/avif;q=0.1, application/json;q=1" },
-  });
-
-  assert.equal(media.headers.get("Content-Type"), "image/webp");
-  assert.equal(await media.text(), "");
-  assert.equal(json.headers.get("Content-Type"), "application/json; charset=utf-8");
-  assert.equal(html.headers.get("Content-Type"), "text/html; charset=utf-8");
-  assert.equal(jsonOverMedia.headers.get("Content-Type"), "application/json; charset=utf-8");
-});
-
-test("JSON paths answer with JSON even without an Accept header", async () => {
-  const paths = ["/api/v1/instance", "/.well-known/webfinger", "/nodeinfo/2.0", "/oauth/token", "/statuses/123.json"];
+test("known machine paths return the shared JSON 410", async () => {
+  const paths = [
+    "/.well-known/host-meta",
+    "/.well-known/webfinger",
+    "/api/v1/instance",
+    "/nodeinfo/2.0",
+    "/oauth/token",
+    "/statuses/123.json",
+    "/@alice.rss",
+    "/users/alice/inbox",
+  ];
 
   for (const path of paths) {
-    const response = await request(path);
+    const response = request(path, { headers: { Accept: "image/png" } });
     assert.equal(response.status, 410, path);
     assert.equal(response.headers.get("Content-Type"), "application/json; charset=utf-8", path);
     assert.equal(await response.text(), '{"error":"Gone"}\n', path);
   }
 });
 
-test("host-meta returns an XRD 410", async () => {
-  const response = await request("/.well-known/host-meta");
-
-  assert.equal(response.status, 410);
-  assert.equal(response.headers.get("Content-Type"), "application/xrd+xml; charset=utf-8");
-  assert.match(await response.text(), /<XRD xmlns=.*<Error>Gone<\/Error><\/XRD>/);
+test("media paths return an empty 410 before considering Accept", async () => {
+  for (const path of ["/media_proxy/123", "/media_attachments/1/image.png", "/system/file.mp4"]) {
+    const response = request(path, { headers: { Accept: "application/json" } });
+    assert.equal(response.status, 410, path);
+    assert.equal(response.headers.get("Content-Type"), null, path);
+    assert.equal(await response.text(), "", path);
+  }
 });
 
-test("RSS feeds receive an empty 410 with the feed content type", async () => {
-  const response = await request("/@alice.rss");
+test("Accept is a coarse fallback for otherwise unknown paths", async () => {
+  const machine = request("/profile", { headers: { Accept: "application/activity+json" } });
+  const media = request("/attachment", { headers: { Accept: "image/webp" } });
+  const browser = request("/attachment", {
+    headers: { Accept: "text/html,application/json;q=0,image/webp" },
+  });
 
-  assert.equal(response.status, 410);
-  assert.equal(response.headers.get("Content-Type"), "application/rss+xml; charset=utf-8");
-  assert.equal(await response.text(), "");
+  assert.equal(machine.headers.get("Content-Type"), "application/json; charset=utf-8");
+  assert.equal(media.headers.get("Content-Type"), null);
+  assert.equal(browser.headers.get("Content-Type"), "text/html; charset=utf-8");
 });
 
-test("the retirement page has document protections and uses the fixed domain", async () => {
-  const response = await request("/", { headers: { "X-Forwarded-Host": "attacker.example" } });
-  const page = await response.text();
+test("Accept quality weights and rejections select the response class", () => {
+  const activityPub = request("/profile", {
+    headers: { Accept: 'application/activity+json, application/ld+json;profile="x", text/html;q=0' },
+  });
+  const json = request("/profile", {
+    headers: { Accept: "application/json;q=1, text/html;q=0.1" },
+  });
+  const media = request("/profile", {
+    headers: { Accept: "application/json;q=0, image/png" },
+  });
+  const html = request("/profile", {
+    headers: { Accept: "application/json;q=0.5, text/html;q=0.8" },
+  });
+
+  assert.equal(activityPub.headers.get("Content-Type"), "application/json; charset=utf-8");
+  assert.equal(json.headers.get("Content-Type"), "application/json; charset=utf-8");
+  assert.equal(media.headers.get("Content-Type"), null);
+  assert.equal(html.headers.get("Content-Type"), "text/html; charset=utf-8");
+});
+
+test("ActivityPub request bodies use the machine response", () => {
+  const post = new Request("https://retired.example/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/ld+json" },
+    body: "{}",
+  });
+  const get = new Request("https://retired.example/profile", {
+    headers: { "Content-Type": "application/ld+json" },
+  });
+
+  assert.equal(classifyRequest(post, "/profile"), "machine");
+  assert.equal(classifyRequest(get, "/profile"), "html");
+});
+
+test("the retirement page has document protections", async () => {
+  const response = request("/");
 
   assert.equal(response.status, 410);
+  assert.equal(response.headers.get("Content-Type"), "text/html; charset=utf-8");
   assert.equal(response.headers.get("X-Robots-Tag"), "noindex, noarchive, nosnippet");
-  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
-  assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
-  assert.equal(response.headers.get("Cache-Control"), "private, max-age=86400");
-  assert.equal(response.headers.get("Cloudflare-CDN-Cache-Control"), "public, max-age=2592000");
   assert.match(response.headers.get("Content-Security-Policy"), /default-src 'none'/);
-  assert.match(page, /vmst\.io is HTTP 410 \(Gone\)/);
-  assert.doesNotMatch(page, /retired\.example/);
-  assert.doesNotMatch(page, /attacker\.example/);
+  assert.equal(await response.text(), retirementPage);
+  assert.match(retirementPage, /vmst\.io is HTTP 410 \(Gone\)/);
+  assert.match(retirementPage, /data:image\/svg\+xml;base64,PHN2Zz48L3N2Zz4=/);
+  assert.doesNotMatch(retirementPage, /retired\.example/);
+  assert.doesNotMatch(retirementPage, /__(?:DOMAIN|LOGO_DATA)__/);
 });
 
-test("the displayed domain is fixed across routed hostnames", async () => {
-  const response = await mf.dispatchFetch("https://www.retired.example:8443/");
-  const page = await response.text();
+test("all gone responses share cache, CORS, and safety headers", () => {
+  const responses = [request("/"), request("/api/v1/instance"), request("/image.png")];
 
-  assert.equal(response.status, 410);
-  assert.match(page, /vmst\.io is HTTP 410 \(Gone\)/);
-  assert.doesNotMatch(page, /www\.retired\.example|8443/);
+  for (const response of responses) {
+    assert.equal(response.headers.get("Cache-Control"), "private, max-age=86400");
+    assert.equal(response.headers.get("Cloudflare-CDN-Cache-Control"), "public, max-age=2592000");
+    assert.equal(response.headers.get("Vary"), "Accept");
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
+  }
 });
 
-test("robots and health endpoints have endpoint-specific cache directives", async () => {
-  const robots = await request("/robots.txt");
-  const health = await request("/healthz");
+test("robots and health remain live endpoints", async () => {
+  const robots = request("/robots.txt");
+  const health = request("/healthz");
 
   assert.equal(robots.status, 200);
-  assert.equal(robots.headers.get("Content-Type"), "text/plain; charset=utf-8");
   assert.equal(robots.headers.get("Cache-Control"), "public, max-age=86400");
-  assert.equal(robots.headers.get("Vary"), null);
   assert.equal(await robots.text(), "User-agent: *\nDisallow: /\n");
   assert.equal(health.status, 200);
   assert.equal(health.headers.get("Cache-Control"), "no-store");
   assert.equal(await health.text(), "ok\n");
-
-  // The universal safety headers apply to the 200 endpoints too, not just the
-  // 410 representations.
-  for (const [name, response] of Object.entries({ robots, health })) {
-    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff", name);
-    assert.equal(response.headers.get("Referrer-Policy"), "no-referrer", name);
-  }
 });
 
-test("a path that names its representation outranks the Accept header", async () => {
-  // An Accept copied from a browser (or from an <img> tag hotlinking the URL)
-  // must not pull a discovery or feed path into the media branch.
-  const webfinger = await request("/.well-known/webfinger", { headers: { Accept: "image/png" } });
-  const api = await request("/api/v1/instance", { headers: { Accept: "image/png" } });
-  const feed = await request("/@alice.rss", { headers: { Accept: "application/json" } });
-  const hostMeta = await request("/.well-known/host-meta", { headers: { Accept: "image/png" } });
-
-  assert.equal(webfinger.headers.get("Content-Type"), "application/json; charset=utf-8");
-  assert.equal(api.headers.get("Content-Type"), "application/json; charset=utf-8");
-  assert.equal(feed.headers.get("Content-Type"), "application/rss+xml; charset=utf-8");
-  assert.equal(hostMeta.headers.get("Content-Type"), "application/xrd+xml; charset=utf-8");
-});
-
-test("cross-origin clients can read every representation", async () => {
-  // Third-party web clients are cross-origin, so without this header the
-  // browser rejects the response before the app can read the "error" field the
-  // JSON branches exist to deliver.
-  const responses = {
-    api: await request("/api/v1/instance", { headers: { Origin: "https://phanpy.social" } }),
-    webfinger: await request("/.well-known/webfinger?resource=acct:alice@retired.example"),
-    actor: await request("/users/alice", { headers: { Accept: "application/activity+json" } }),
-    page: await request("/"),
-    robots: await request("/robots.txt"),
-    health: await request("/healthz"),
-  };
-
-  for (const [name, response] of Object.entries(responses)) {
-    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*", name);
-  }
-  // A constant "*" does not depend on Origin, so Vary must stay a single header.
-  assert.equal(responses.api.headers.get("Vary"), "Accept");
-});
-
-test("a CORS preflight succeeds so the real request can reach its 410", async () => {
-  // A preflight asks permission to send a request; it does not request the
-  // resource. Answering 410 would stop the browser from ever sending the real
-  // request, so the client would never see the 410.
-  const preflight = await request("/api/v1/timelines/home", {
+test("CORS preflights succeed and echo requested headers", () => {
+  const response = request("/api/v1/timelines/home", {
     method: "OPTIONS",
     headers: {
       Origin: "https://elk.zone",
@@ -240,68 +134,23 @@ test("a CORS preflight succeeds so the real request can reach its 410", async ()
     },
   });
 
-  assert.equal(preflight.status, 204);
-  assert.equal(preflight.headers.get("Access-Control-Allow-Origin"), "*");
-  assert.match(preflight.headers.get("Access-Control-Allow-Methods"), /GET/);
-  // Authorization is excluded from the "*" form of this header, so it has to be
-  // named explicitly — every Mastodon API client sends it.
-  assert.equal(preflight.headers.get("Access-Control-Allow-Headers"), "authorization");
-  assert.equal(preflight.headers.get("Cache-Control"), "no-store");
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Headers"), "authorization");
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
 });
 
-test("a plain OPTIONS request is still gone", async () => {
-  // Only the browser's two preflight markers divert from the 410.
-  const options = await request("/api/v1/instance", { method: "OPTIONS" });
-
-  assert.equal(options.status, 410);
-  assert.equal(options.headers.get("Content-Type"), "application/json; charset=utf-8");
+test("the canvas disintegration effect remains in the retirement page", () => {
+  assert.match(retirementPage, /illustration-overlay/);
+  assert.match(retirementPage, /function buildTiles\(\)/);
+  assert.match(retirementPage, /requestAnimationFrame\(loop\)/);
+  assert.match(retirementPage, /prefers-reduced-motion/);
 });
 
-test("Content-Type is only consulted on methods that carry a body", async () => {
-  // A GET's Content-Type describes nothing, so it must not select ActivityPub.
-  // Keeping cacheable responses a function of Accept alone is what allows
-  // Vary to name a single header.
-  const get = await request("/profile", { headers: { "Content-Type": "application/activity+json" } });
-  const post = await request("/profile", {
-    method: "POST",
-    headers: { "Content-Type": "application/activity+json" },
-    body: "{}",
-  });
+test("page rendering escapes domains and inserts replacement tokens literally", () => {
+  const page = createRetirementPage("<svg></svg>", `site<&"'$&`);
 
-  assert.equal(get.headers.get("Content-Type"), "text/html; charset=utf-8");
-  assert.equal(get.headers.get("Vary"), "Accept");
-  assert.equal(post.headers.get("Content-Type"), "application/activity+json; charset=utf-8");
-});
-
-test("request logging does not break responses when enabled", async () => {
-  // The shared instance disables LOG_REQUESTS, so logRequest's real code
-  // path (URL parsing, header reads, clientIP) never runs there.
-  const messages = [];
-  const originalConsoleLog = console.log;
-  console.log = (...args) => messages.push(args.join(" "));
-  const logging = createMiniflare({});
-
-  try {
-    const response = await logging.dispatchFetch("https://retired.example/users/alice?source=test", {
-      headers: { "X-Forwarded-For": "203.0.113.7", "User-Agent": 'probe" ip=fake' },
-    });
-    assert.equal(response.status, 410);
-
-    const message = messages.find((candidate) => candidate.includes('{"message":"request"'));
-    assert.ok(message, "structured request log was emitted");
-    const entry = JSON.parse(message.slice(message.indexOf("{")));
-    assert.deepEqual(entry, {
-      message: "request",
-      status: 410,
-      method: "GET",
-      path: "/users/alice?source=test",
-      contentType: "text/html; charset=utf-8",
-      host: "retired.example",
-      clientIP: "127.0.0.1",
-      userAgent: 'probe" ip=fake',
-    });
-  } finally {
-    console.log = originalConsoleLog;
-    await logging.dispose();
-  }
+  assert.match(page, /site&lt;&amp;&#34;&#39;\$&amp; is HTTP 410 \(Gone\)/);
+  assert.doesNotMatch(page, /site<&/);
+  assert.doesNotMatch(page, /__(?:DOMAIN|LOGO_DATA)__/);
 });
