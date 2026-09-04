@@ -8,6 +8,11 @@ const retirementPage = createRetirementPage(LOGO_SVG, "vmst.io");
 
 export default {
   fetch(request) {
-    return handleRequest(request, retirementPage);
+    try {
+      return handleRequest(request, retirementPage);
+    } catch (e) {
+      console.error(JSON.stringify({ message: "request failed", error: e instanceof Error ? e.message : String(e) }));
+      return Response.json({ error: "Internal Server Error" }, { status: 500 });
+    }
   },
 };
