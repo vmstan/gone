@@ -53,7 +53,7 @@ separate Worker runtime.
 ## Deploy
 
 Each hostname's zone must already be active in the Cloudflare account. Add a
-`[[routes]]` entry to `wrangler.toml` for any additional hostname, then run:
+`routes` entry in `wrangler.json` for any additional hostname, then run:
 
 ```sh
 pnpm deploy

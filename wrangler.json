@@ -1,0 +1,32 @@
+{
+  "cache": {
+    "enabled": true
+  },
+  "compatibility_date": "2026-09-03",
+  "main": "worker.js",
+  "name": "gone",
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  "routes": [
+    {
+      "custom_domain": true,
+      "pattern": "vmst.io"
+    },
+    {
+      "pattern": "*.vmst.io/*",
+      "zone_name": "vmst.io"
+    }
+  ],
+  "rules": [
+    {
+      "fallthrough": true,
+      "globs": ["**/*.svg"],
+      "type": "Text"
+    }
+  ]
+}
