@@ -42,6 +42,10 @@ test("the worker entry maps handler failures to a logged 500", async () => {
     };
     const response = worker.fetch(throwing);
     assert.equal(response.status, 500);
+    assert.equal(response.headers.get("Content-Type"), "application/json");
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
     assert.equal(await response.text(), '{"error":"Internal Server Error"}');
     assert.deepEqual(JSON.parse(logged[0]), { message: "request failed", error: "boom" });
 

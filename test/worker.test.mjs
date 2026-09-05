@@ -91,7 +91,10 @@ test("the retirement page has document protections", async () => {
   assert.equal(response.status, 410);
   assert.equal(response.headers.get("Content-Type"), "text/html; charset=utf-8");
   assert.equal(response.headers.get("X-Robots-Tag"), "noindex, noarchive, nosnippet");
-  assert.match(response.headers.get("Content-Security-Policy"), /default-src 'none'/);
+  assert.equal(
+    response.headers.get("Content-Security-Policy"),
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  );
   assert.equal(await response.text(), retirementPage);
   assert.match(retirementPage, /vmst\.io is HTTP 410 \(Gone\)/);
   assert.match(retirementPage, /data:image\/svg\+xml;base64,PHN2Zz48L3N2Zz4=/);
@@ -118,9 +121,11 @@ test("robots and health remain live endpoints", async () => {
 
   assert.equal(robots.status, 200);
   assert.equal(robots.headers.get("Cache-Control"), "public, max-age=86400");
+  assert.equal(robots.headers.get("Content-Type"), "text/plain; charset=utf-8");
   assert.equal(await robots.text(), "User-agent: *\nDisallow: /\n");
   assert.equal(health.status, 200);
   assert.equal(health.headers.get("Cache-Control"), "no-store");
+  assert.equal(health.headers.get("Content-Type"), "text/plain; charset=utf-8");
   assert.equal(await health.text(), "ok\n");
 });
 
@@ -218,8 +223,12 @@ test("machine responses win ties against media but lose them to html", () => {
   const machineOverMedia = request("/profile", {
     headers: { Accept: "application/json, image/png" },
   });
+  const htmlOverMachine = request("/profile", {
+    headers: { Accept: "text/html, application/json" },
+  });
 
   assert.equal(machineOverMedia.headers.get("Content-Type"), "application/json; charset=utf-8");
+  assert.equal(htmlOverMachine.headers.get("Content-Type"), "text/html; charset=utf-8");
 });
 
 test("Accept types and media extensions match case-insensitively", () => {
@@ -291,6 +300,31 @@ test("preflights without requested headers still succeed", async () => {
   assert.equal(response.headers.get("Access-Control-Max-Age"), "86400");
   assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.equal(await response.text(), "");
+});
+
+test("OPTIONS requests missing either required CORS header are not preflights", () => {
+  const missingOrigin = request("/profile", {
+    method: "OPTIONS",
+    headers: { "Access-Control-Request-Method": "GET" },
+  });
+  const missingRequestedMethod = request("/profile", {
+    method: "OPTIONS",
+    headers: { Origin: "https://elk.zone" },
+  });
+
+  for (const response of [missingOrigin, missingRequestedMethod]) {
+    assert.equal(response.status, 410);
+    assert.equal(response.headers.get("Content-Type"), "text/html; charset=utf-8");
+  }
+});
+
+test("live endpoints only accept GET and HEAD", () => {
+  for (const path of ["/healthz", "/robots.txt"]) {
+    assert.equal(request(path, { method: "GET" }).status, 200, path);
+    assert.equal(request(path, { method: "HEAD" }).status, 200, path);
+    assert.equal(request(path, { method: "POST" }).status, 410, path);
+    assert.equal(request(path, { method: "PUT" }).status, 410, path);
+  }
 });
 
 test("page rendering escapes every special character in the title and heading", () => {

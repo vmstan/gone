@@ -92,7 +92,7 @@ export function classifyRequest(request, path) {
   return "html";
 }
 
-function applySafeHeaders(response) {
+export function applySafeHeaders(response) {
   response.headers.set("Access-Control-Allow-Origin", "*");
   response.headers.set("Referrer-Policy", "no-referrer");
   response.headers.set("X-Content-Type-Options", "nosniff");
@@ -136,15 +136,16 @@ function goneResponse(kind, retirementPage) {
 
 export function handleRequest(request, retirementPage) {
   const path = new URL(request.url).pathname;
+  const isReadRequest = request.method === "GET" || request.method === "HEAD";
 
   let response;
   if (isPreflight(request)) {
     response = preflightResponse(request);
-  } else if (path === "/healthz") {
+  } else if (isReadRequest && path === "/healthz") {
     response = new Response("ok\n", {
       headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8" },
     });
-  } else if (path === "/robots.txt") {
+  } else if (isReadRequest && path === "/robots.txt") {
     response = new Response("User-agent: *\nDisallow: /\n", {
       headers: { "Cache-Control": "public, max-age=86400", "Content-Type": "text/plain; charset=utf-8" },
     });

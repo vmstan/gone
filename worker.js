@@ -2,7 +2,7 @@
 
 import LOGO_SVG from "./logo.svg";
 import { createRetirementPage } from "./page.js";
-import { handleRequest } from "./router.js";
+import { applySafeHeaders, handleRequest } from "./router.js";
 
 const retirementPage = createRetirementPage(LOGO_SVG, "vmst.io");
 
@@ -12,7 +12,7 @@ export default {
       return handleRequest(request, retirementPage);
     } catch (e) {
       console.error(JSON.stringify({ message: "request failed", error: e instanceof Error ? e.message : String(e) }));
-      return Response.json({ error: "Internal Server Error" }, { status: 500 });
+      return applySafeHeaders(Response.json({ error: "Internal Server Error" }, { status: 500 }));
     }
   },
 };

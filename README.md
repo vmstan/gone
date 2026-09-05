@@ -22,8 +22,9 @@ Known API and protocol paths take precedence over `Accept`. For otherwise
 unknown paths, quality weights choose between HTML, machine, and media
 responses; HTML wins ties, and ranges with `q=0` are rejected.
 
-`/robots.txt` returns a live `200` disallow-all directive. `/healthz` returns a
-live, uncached `200` health response.
+For `GET` and `HEAD`, `/robots.txt` returns a live `200` disallow-all directive
+and `/healthz` returns a live, uncached `200` health response. Other methods
+receive the normal `410` response.
 
 All responses include CORS and basic safety headers. The HTML response also
 includes a restrictive Content Security Policy and crawler directives.
@@ -47,8 +48,11 @@ Then visit <http://localhost:8787>.
 pnpm test
 ```
 
-The tests use Node's built-in test runner and Web APIs; they do not start a
-separate Worker runtime.
+The unit tests use Node's built-in test runner and enforce 100% line, branch,
+and function coverage for the JavaScript modules. They also execute the
+browser-side canvas behavior in a deterministic DOM harness. A separate
+integration test uses Cloudflare's Vitest plugin to run the production entry
+point and real SVG asset inside the Workers runtime.
 
 ## Deploy
 

@@ -8,9 +8,13 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test"
+    "test": "pnpm run test:unit && pnpm run test:runtime",
+    "test:unit": "node --test --experimental-test-coverage --test-coverage-include=page.js --test-coverage-include=router.js --test-coverage-include=worker.js --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/worker.test.mjs test/worker-entry.test.mjs test/page-browser.test.mjs",
+    "test:runtime": "vitest run --config vitest.config.js"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.4",
+    "vitest": "^4.1.11",
     "wrangler": "^4.129.0"
   }
 }
