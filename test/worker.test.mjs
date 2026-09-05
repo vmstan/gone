@@ -154,3 +154,159 @@ test("page rendering escapes domains and inserts replacement tokens literally", 
   assert.doesNotMatch(page, /site<&/);
   assert.doesNotMatch(page, /__(?:DOMAIN|LOGO_DATA)__/);
 });
+
+test("malformed Accept quality values are treated as rejected", () => {
+  const notANumber = request("/profile", { headers: { Accept: "application/json;q=bogus" } });
+  const tooLarge = request("/profile", { headers: { Accept: "application/json;q=2" } });
+  const negative = request("/profile", { headers: { Accept: "text/html;q=-0.5" } });
+
+  for (const response of [notANumber, tooLarge, negative]) {
+    assert.equal(response.headers.get("Content-Type"), "text/html; charset=utf-8");
+  }
+});
+
+test("non-GET requests without a Content-Type do not use the machine response", () => {
+  const post = new Request("https://retired.example/profile", { method: "POST" });
+
+  assert.equal(classifyRequest(post, "/profile"), "html");
+});
+
+test("HEAD requests never use the machine body rule", () => {
+  const head = new Request("https://retired.example/profile", {
+    method: "HEAD",
+    headers: { "Content-Type": "application/activity+json" },
+  });
+
+  assert.equal(classifyRequest(head, "/profile"), "html");
+});
+
+test("machine bodies match content types with parameters and casing", () => {
+  for (const contentType of [
+    "application/json; charset=utf-8",
+    "Application/LD+JSON",
+    "application/activity+json; charset=utf-8",
+  ]) {
+    const req = new Request("https://retired.example/profile", {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body: "{}",
+    });
+    assert.equal(classifyRequest(req, "/profile"), "machine", contentType);
+  }
+
+  const plain = new Request("https://retired.example/profile", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: "hi",
+  });
+  assert.equal(classifyRequest(plain, "/profile"), "html");
+});
+
+test("unknown or fully rejected Accept types fall back to the retirement page", () => {
+  const unknown = request("/profile", { headers: { Accept: "text/plain" } });
+  const wildcard = request("/profile", { headers: { Accept: "*/*" } });
+  const allRejected = request("/profile", {
+    headers: { Accept: "text/html;q=0, application/json;q=0, image/png;q=0" },
+  });
+
+  for (const response of [unknown, wildcard, allRejected]) {
+    assert.equal(response.headers.get("Content-Type"), "text/html; charset=utf-8");
+  }
+});
+
+test("machine responses win ties against media but lose them to html", () => {
+  const machineOverMedia = request("/profile", {
+    headers: { Accept: "application/json, image/png" },
+  });
+
+  assert.equal(machineOverMedia.headers.get("Content-Type"), "application/json; charset=utf-8");
+});
+
+test("Accept types and media extensions match case-insensitively", () => {
+  const upper = request("/profile", { headers: { Accept: "TEXT/HTML" } });
+  const photo = request("/PHOTO.JPG");
+
+  assert.equal(upper.headers.get("Content-Type"), "text/html; charset=utf-8");
+  assert.equal(photo.headers.get("Content-Type"), null);
+});
+
+test("remaining well-known and oauth paths return the shared JSON 410", async () => {
+  for (const path of [
+    "/.well-known/nodeinfo",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/openid-configuration",
+    "/.well-known/x-nodeinfo2",
+    "/oauth/revoke",
+    "/oauth/userinfo",
+  ]) {
+    const response = request(path);
+    assert.equal(response.status, 410, path);
+    assert.equal(response.headers.get("Content-Type"), "application/json; charset=utf-8", path);
+    assert.equal(await response.text(), '{"error":"Gone"}\n', path);
+  }
+});
+
+test("live endpoints ignore query strings but not extra path segments", () => {
+  assert.equal(request("/healthz?ready=1").status, 200);
+  assert.equal(request("/robots.txt?x=1").status, 200);
+  assert.equal(request("/healthz/").status, 410);
+  assert.equal(request("/robots.txt/").status, 410);
+});
+
+test("safe headers apply to live endpoints and preflights too", () => {
+  const responses = [
+    request("/healthz"),
+    request("/robots.txt"),
+    request("/api/v1/instance", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://elk.zone",
+        "Access-Control-Request-Method": "GET",
+      },
+    }),
+  ];
+
+  for (const response of responses) {
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  }
+});
+
+test("preflights without requested headers still succeed", async () => {
+  const response = request("/api/v1/instance", {
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://elk.zone",
+      "Access-Control-Request-Method": "GET",
+    },
+  });
+
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Headers"), null);
+  assert.equal(
+    response.headers.get("Access-Control-Allow-Methods"),
+    "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+  assert.equal(response.headers.get("Access-Control-Max-Age"), "86400");
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.equal(await response.text(), "");
+});
+
+test("page rendering escapes every special character in the title and heading", () => {
+  const page = createRetirementPage("<svg></svg>", `a>b<&"'`);
+
+  assert.match(page, /<title>a&gt;b&lt;&amp;&#34;&#39;<\/title>/);
+  assert.match(page, /a&gt;b&lt;&amp;&#34;&#39; is HTTP 410 \(Gone\)/);
+});
+
+test("logos with non-ASCII bytes survive the base64 round trip", () => {
+  const logo = "<svg><!-- héllo 🌍 --></svg>";
+  const page = createRetirementPage(logo, "vmst.io");
+  const encoded = page.match(/data:image\/svg\+xml;base64,([A-Za-z0-9+/=]+)/)[1];
+  const decoded = new TextDecoder().decode(
+    Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0))
+  );
+
+  assert.equal(decoded, logo);
+});
