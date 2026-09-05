@@ -145,15 +145,20 @@ body {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     octx.clearRect(0, 0, overlay.width, overlay.height);
 
+    // The intact logo needs one draw, with no per-tile work or layout read.
+    if (progress === 0) {
+      ctx.drawImage(img, 0, 0, canvas.width / RENDER_SCALE, canvas.height / RENDER_SCALE, 0, 0, canvas.width, canvas.height);
+      return;
+    }
+
     // A faint grayscale ghost of the original logo, left behind under
     // whatever hasn't dissolved away yet.
-    if (progress > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.16;
-      ctx.filter = 'grayscale(100%)';
-      ctx.drawImage(img, 0, 0, canvas.width / RENDER_SCALE, canvas.height / RENDER_SCALE, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
-    }
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.filter = 'grayscale(100%)';
+    ctx.drawImage(img, 0, 0, canvas.width / RENDER_SCALE, canvas.height / RENDER_SCALE, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    if (progress === 1) return;
 
     var rect = canvas.getBoundingClientRect();
     var scale = rect.width / canvas.width;
@@ -169,14 +174,15 @@ body {
         ctx.drawImage(img, t.x / RENDER_SCALE, t.y / RENDER_SCALE, t.w / RENDER_SCALE, t.h / RENDER_SCALE, t.x, t.y, t.w, t.h);
         continue;
       }
-      var sway = Math.sin(p * t.swayFreq * Math.PI + t.swayPhase) * t.sway * p;
+      var flutter = Math.sin(p * t.swayFreq * Math.PI + t.swayPhase);
+      var sway = flutter * t.sway * p;
       octx.save();
       octx.globalAlpha = 1 - p;
       octx.translate(
         originX + (t.x + t.w / 2) * scale + windX * t.windXFactor * p + sway,
         originY + (t.y + t.h / 2) * scale + windY * t.windYFactor * p
       );
-      octx.rotate(t.rot * p + Math.sin(p * t.swayFreq * Math.PI + t.swayPhase) * 0.25);
+      octx.rotate(t.rot * p + flutter * 0.25);
       var dw = t.w * scale, dh = t.h * scale;
       octx.drawImage(img, t.x / RENDER_SCALE, t.y / RENDER_SCALE, t.w / RENDER_SCALE, t.h / RENDER_SCALE, -dw / 2, -dh / 2, dw, dh);
       octx.restore();
@@ -201,6 +207,7 @@ body {
 
   function setTarget(t) {
     if (reducedMotion && reducedMotion.matches) return;
+    if (progress >= t) return;
     target = t;
     if (!running) {
       running = true;

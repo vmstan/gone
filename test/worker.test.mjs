@@ -239,6 +239,46 @@ test("Accept types and media extensions match case-insensitively", () => {
   assert.equal(photo.headers.get("Content-Type"), null);
 });
 
+test("Accept negotiation preserves maxima and tie precedence in any range order", () => {
+  const cases = [
+    { ranges: ["text/html", "application/json", "image/png"], kind: "html" },
+    { ranges: ["text/html;q=0.6", "application/json;q=0.6", "image/png;q=0.6"], kind: "html" },
+    { ranges: ["text/html;q=0.2", "application/json;q=0.8", "image/png;q=0.8"], kind: "machine" },
+    { ranges: ["text/html;q=0.7", "application/json;q=0.8", "image/png;q=0.9"], kind: "media" },
+    { ranges: ["text/html;q=0.8", "text/html;q=0.1", "application/json;q=0.5"], kind: "html" },
+    { ranges: ["application/json;q=0.9", "application/json;q=0", "image/png;q=0.5"], kind: "machine" },
+    { ranges: ["image/png;q=0.9", "image/webp;q=0.1", "application/json;q=0.5"], kind: "media" },
+  ];
+
+  for (const { ranges, kind } of cases) {
+    const [a, b, c] = ranges;
+    for (const order of [[a, b, c], [a, c, b], [b, a, c], [b, c, a], [c, a, b], [c, b, a]]) {
+      const accept = order.join(", ");
+      const req = new Request("https://retired.example/profile", { headers: { Accept: accept } });
+      assert.equal(classifyRequest(req, "/profile"), kind, accept);
+    }
+  }
+});
+
+test("Accept parameters retain casing, first-quality, and rejection behavior", () => {
+  const cases = [
+    ['APPLICATION/LD+JSON;profile="x"; Q=0.9, text/html;q=0.5', "machine"],
+    ["application/json;q=0;q=1, image/png", "media"],
+    ["application/json;q=1;q=0, image/png", "machine"],
+    ["text/html;q=bogus, text/html;q=0.9, image/png;q=0.5", "html"],
+    ["text/plain;q=1, image/png;q=0.2", "media"],
+    ["text/html;q=0.8, image/png;q=Infinity", "html"],
+    ["text/html;q=0.8, application/json;q=-1, image/png;q=2", "html"],
+    [", ;q=1, */*", "html"],
+    ["", "html"],
+  ];
+
+  for (const [accept, kind] of cases) {
+    const req = new Request("https://retired.example/profile", { headers: { Accept: accept } });
+    assert.equal(classifyRequest(req, "/profile"), kind, accept);
+  }
+});
+
 test("remaining well-known and oauth paths return the shared JSON 410", async () => {
   for (const path of [
     "/.well-known/nodeinfo",

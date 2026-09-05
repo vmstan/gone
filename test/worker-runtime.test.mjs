@@ -2,6 +2,24 @@ import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 describe("production Worker runtime", () => {
+  it("negotiates unknown paths using Accept weights in the Workers runtime", async () => {
+    const cases = [
+      ["text/html, application/json, image/png", "text/html; charset=utf-8"],
+      ["text/html;q=0.4, application/json;q=0.8, image/png;q=0.8", "application/json; charset=utf-8"],
+      ["text/html;q=0.4, application/json;q=0, image/png;q=0.8", null],
+      ["text/html;q=bogus, application/json;q=2, image/png;q=-1", "text/html; charset=utf-8"],
+    ];
+
+    for (const [accept, contentType] of cases) {
+      const response = await exports.default.fetch("https://vmst.io/profile", {
+        headers: { Accept: accept },
+      });
+      expect(response.status).toBe(410);
+      expect(response.headers.get("Content-Type")).toBe(contentType);
+      await response.text();
+    }
+  });
+
   it("serves every response class through workerd with the real SVG asset", async () => {
     const html = await exports.default.fetch("https://vmst.io/");
     expect(html.status).toBe(410);

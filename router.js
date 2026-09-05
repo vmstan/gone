@@ -26,23 +26,6 @@ const MACHINE_ACCEPT_TYPES = [
 const MEDIA_PATH = /\.(?:avif|bmp|flac|gif|heic|ico|jpe?g|m4a|m4v|mov|mp3|mp4|oga|ogg|ogv|png|svg|tiff?|wav|webm|webp)$/i;
 const MEDIA_TYPE = /^(?:audio|image|video)\//;
 
-function acceptRanges(headerValue) {
-  return (headerValue || "").split(",").map((value) => {
-    const [type, ...parameters] = value.trim().split(";");
-    const qParameter = parameters.find((parameter) => parameter.trim().toLowerCase().startsWith("q="));
-    const parsedQuality = qParameter ? Number(qParameter.split("=", 2)[1].trim()) : 1;
-    const quality = Number.isFinite(parsedQuality) && parsedQuality >= 0 && parsedQuality <= 1 ? parsedQuality : 0;
-    return { type: type.toLowerCase(), quality };
-  });
-}
-
-function qualityFor(ranges, predicate) {
-  return ranges.reduce(
-    (highest, range) => (predicate(range.type) ? Math.max(highest, range.quality) : highest),
-    0
-  );
-}
-
 function isPreflight(request) {
   return (
     request.method === "OPTIONS" &&
@@ -81,10 +64,35 @@ export function classifyRequest(request, path) {
   if (isMediaPath(path)) return "media";
   if (isMachinePath(path) || carriesMachineBody(request)) return "machine";
 
-  const ranges = acceptRanges(request.headers.get("Accept"));
-  const htmlQuality = qualityFor(ranges, (type) => type === "text/html");
-  const machineQuality = qualityFor(ranges, (type) => MACHINE_ACCEPT_TYPES.includes(type));
-  const mediaQuality = qualityFor(ranges, (type) => MEDIA_TYPE.test(type));
+  const accept = request.headers.get("Accept");
+  if (!accept) return "html";
+
+  let htmlQuality = 0;
+  let machineQuality = 0;
+  let mediaQuality = 0;
+  // Accumulate all three preferences in one pass without allocating range
+  // objects or parsing quality parameters for unsupported types.
+  for (const value of accept.split(",")) {
+    const [rawType, ...parameters] = value.trim().split(";");
+    const type = rawType.toLowerCase();
+    const isHtml = type === "text/html";
+    const isMachine = MACHINE_ACCEPT_TYPES.includes(type);
+    if (!isHtml && !isMachine && !MEDIA_TYPE.test(type)) continue;
+
+    const qParameter = parameters.find((parameter) => parameter.trim().toLowerCase().startsWith("q="));
+    const quality = qParameter ? Number(qParameter.split("=", 2)[1].trim()) : 1;
+    if (!Number.isFinite(quality) || quality < 0 || quality > 1) continue;
+
+    if (isHtml) {
+      // HTML wins ties, so no later range can beat its maximum quality.
+      if (quality === 1) return "html";
+      htmlQuality = Math.max(htmlQuality, quality);
+    } else if (isMachine) {
+      machineQuality = Math.max(machineQuality, quality);
+    } else {
+      mediaQuality = Math.max(mediaQuality, quality);
+    }
+  }
 
   if (htmlQuality > 0 && htmlQuality >= machineQuality && htmlQuality >= mediaQuality) return "html";
   if (machineQuality > 0 && machineQuality >= mediaQuality) return "machine";

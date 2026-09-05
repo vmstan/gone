@@ -6,6 +6,7 @@ import { createRetirementPage } from "../page.js";
 
 function createCanvas(displayWidth) {
   const listeners = new Map();
+  let layoutReads = 0;
   const calls = {
     clearRect: [],
     drawImage: [],
@@ -28,6 +29,7 @@ function createCanvas(displayWidth) {
         listeners.set(type, listener);
       },
       getBoundingClientRect() {
+        layoutReads += 1;
         return { width: displayWidth, left: 12, top: 24 };
       },
       getContext(type) {
@@ -36,6 +38,7 @@ function createCanvas(displayWidth) {
       },
     },
     listeners,
+    layoutReads: () => layoutReads,
   };
 }
 
@@ -126,17 +129,21 @@ test("the browser script loads, sizes, animates, and resizes the canvases", () =
   const randomCallsBeforeLoad = harness.randomCalls();
   assert.ok(randomCallsBeforeLoad > 0);
 
+  const drawsBeforeLoad = harness.main.calls.drawImage.length;
   harness.image.onload();
   assert.equal(harness.main.canvas.width, 450);
   assert.equal(harness.main.canvas.height, 474);
   assert.equal(harness.overlay.canvas.width, 800);
   assert.equal(harness.overlay.canvas.height, 600);
   assert.ok(harness.randomCalls() > randomCallsBeforeLoad);
-  assert.ok(harness.main.calls.drawImage.length > 0);
+  assert.equal(harness.main.calls.drawImage.length - drawsBeforeLoad, 1);
+  assert.deepEqual(harness.main.calls.drawImage.at(-1), [harness.image, 0, 0, 75, 79, 0, 0, 450, 474]);
 
   const randomCallsAfterLoad = harness.randomCalls();
+  const drawsAfterLoad = harness.main.calls.drawImage.length;
   harness.triggerWindow("resize");
   assert.equal(harness.randomCalls(), randomCallsAfterLoad);
+  assert.equal(harness.main.calls.drawImage.length - drawsAfterLoad, 1);
 
   harness.triggerCanvas("click");
   assert.equal(harness.frames.length, 1);
@@ -161,10 +168,19 @@ test("the browser script loads, sizes, animates, and resizes the canvases", () =
   assert.ok(harness.main.calls.save.length > 0);
   assert.ok(harness.main.calls.restore.length > 0);
   assert.ok(harness.overlay.calls.clearRect.length > 0);
+
+  const finalDraws = harness.main.calls.drawImage.length;
+  const finalOverlayDraws = harness.overlay.calls.drawImage.length;
+  const finalLayoutReads = harness.main.layoutReads();
   harness.triggerCanvas("click");
-  assert.equal(harness.frames.length, 1);
-  harness.frames.shift()(timestamp);
+  harness.triggerCanvas("mouseenter");
   assert.equal(harness.frames.length, 0);
+  assert.equal(harness.main.calls.drawImage.length, finalDraws);
+
+  harness.triggerWindow("resize");
+  assert.equal(harness.main.calls.drawImage.length - finalDraws, 1);
+  assert.equal(harness.overlay.calls.drawImage.length, finalOverlayDraws);
+  assert.equal(harness.main.layoutReads(), finalLayoutReads);
 });
 
 test("reduced motion prevents hover and click animations", () => {
@@ -176,6 +192,7 @@ test("reduced motion prevents hover and click animations", () => {
 
   assert.equal(harness.frames.length, 0);
   assert.equal(harness.overlay.calls.translate.length, 0);
+  assert.equal(harness.main.calls.drawImage.length, 1);
 });
 
 test("browsers without matchMedia still run the animation", () => {
