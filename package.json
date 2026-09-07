@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.3.4",
   "description": "Tiny Cloudflare Worker that responds to every request with HTTP 410 Gone.",
   "scripts": {
     "dev": "wrangler dev",
