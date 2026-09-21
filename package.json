@@ -13,7 +13,7 @@
     "test:runtime": "vitest run --config vitest.config.js"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.1.11",
+    "@cloudflare/vitest-plugin": "^1.1.12",
     "vitest": "^4.1.11",
     "wrangler": "^4.133.0"
   }
