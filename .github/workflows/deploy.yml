@@ -22,7 +22,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -42,7 +42,7 @@ jobs:
     # Pull requests only run the test job; deploys happen from main.
     if: github.event_name != 'pull_request' && needs.test.result == 'success'
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
