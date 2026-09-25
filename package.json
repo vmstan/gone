@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.6.0",
   "description": "Tiny Cloudflare Worker that responds to every request with HTTP 410 Gone.",
   "scripts": {
     "dev": "wrangler dev",
@@ -13,8 +13,8 @@
     "test:runtime": "vitest run --config vitest.config.js"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.2.3",
+    "@cloudflare/vitest-plugin": "^1.2.6",
     "vitest": "^4.1.11",
-    "wrangler": "^4.136.3"
+    "wrangler": "^4.139.0"
   }
 }
